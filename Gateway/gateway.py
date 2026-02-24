@@ -1,14 +1,17 @@
 import os
+from dotenv import load_dotenv  # ✅ เพิ่ม
 from fastapi import FastAPI, HTTPException, Header, Request, status
 import httpx
 import time
 from datetime import timezone, timedelta, datetime
 
+load_dotenv()  # ✅ เพิ่ม - โหลด .env ก่อน os.getenv()
+
 app = FastAPI(title="Gateway", version="1.0.0")
 timezone_thai = timezone(timedelta(hours=7))
 
 BANK_API_URL = os.getenv("BANK_API_URL", "http://127.0.0.1:8000")
-BACKEND_API_URL = os.getenv("BACKEND_API_URL", "http://127.0.0.1:8002")
+BACKEND_API_URL = os.getenv("BACKEND_API_URL", "http://127.0.0.1:8001")
 
 def get_thai_now():
     return datetime.now(timezone_thai)
