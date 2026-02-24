@@ -3,8 +3,8 @@ import uuid
 import os
 import sys
 
-BANK_API_URL = "http://143.198.85.26:8000"
-GATEWAY_API_URL = "http://188.166.214.193:8080"
+BANK_API_URL = "http://127.0.0.1:8000"
+GATEWAY_API_URL = "http://127.0.0.1:8080"
 
 class SmartClient(HttpUser):
     wait_time = between(1, 2)
