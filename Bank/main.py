@@ -28,6 +28,7 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
         return crud.create_user(db=db, username=user.username, password=user.password, initial_balance=user.initial_balance)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
 @app.post('/login/', response_model=schemas.UserResponse)
 def login(user_credentials: schemas.UserLogin, db: Session = Depends(get_db)):
     # ตรวจสอบการเข้าสู่ระบบผู้ใข้
@@ -78,3 +79,8 @@ def read_transactions(user_id: int, skip: int=0, limit: int=50, db: Session = De
 def read_user_tokens(user_id: int, unused_only: bool = True, db: Session = Depends(get_db)):
     # ดึงข้อมูลโทเค็นของผู้ใช้
     return crud.get_user_token(db, user_id=user_id, unused_only=unused_only)
+
+# [เพิ่ม] ส่วนนี้เพื่อให้รันไฟล์นี้ได้โดยตรง
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -144,18 +144,23 @@ def topup(db: Session, user_id:int, amount:float) -> User:
     return update_balance(db, user_id, amount, "topup", f"Top-up {amount} Baht")
 
 def purchase(db: Session, user_id:int, quantity:int, price_per_token:float) -> dict:
-    # เช็ึคผู้ใช้และยอดเงิน
-    user = get_user(db, user_id)
-    if not user:
-        raise ValueError(f"User ID {user_id} not found")
-    
-    total_cost = quantity * price_per_token 
-    if user.balance < total_cost:
-        raise ValueError(f"Insufficient balance: {user.balance} Baht, "f"required: {total_cost} Baht")
-    
-    try:
-        user.balance -= total_cost
+    total_cost = quantity * price_per_token
 
+    # ✅ แก้: Atomic update ป้องกัน Race Condition
+    # เช็คและหัก balance ในคำสั่งเดียว จะสำเร็จก็ต่อเมื่อมีเงินพอเท่านั้น
+    rows_updated = db.query(User).filter(
+        User.id == user_id,
+        User.balance >= total_cost
+    ).update({"balance": User.balance - total_cost}, synchronize_session="fetch")
+
+    if rows_updated == 0:
+        db.rollback()
+        user = get_user(db, user_id)
+        if not user:
+            raise ValueError(f"User ID {user_id} not found")
+        raise ValueError(f"Insufficient balance: {user.balance} Baht, "f"required: {total_cost} Baht")
+
+    try:
         transaction = Transaction(user_id=user_id, amount=-total_cost, type="purchase", description=f"Purchase {quantity} tokens")
         db.add(transaction)
 
@@ -167,10 +172,11 @@ def purchase(db: Session, user_id:int, quantity:int, price_per_token:float) -> d
             new_tokens.append(token_id)
 
         db.commit()
-        db.refresh(user)
+        db.refresh(get_user(db, user_id))
 
+        user = get_user(db, user_id)
         return {"tokens": new_tokens, "total_cost": total_cost, "remaining_balance": user.balance, "quantity": quantity}
 
     except Exception as e:
         db.rollback()
-        raise e        
+        raise e
