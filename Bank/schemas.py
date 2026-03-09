@@ -1,4 +1,5 @@
 from pydantic import BaseModel, Field, field_validator, ConfigDict
+from decimal import Decimal
 from datetime import datetime
 from typing import List, Optional
 
@@ -24,7 +25,7 @@ class UserResponse(BaseModel):
     # ข้อมูลผู้ใช้ที่ส่งกลับ
     id: int
     username: str
-    balance: float
+    balance: Decimal
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -33,7 +34,7 @@ class TransactionResponse(BaseModel):
     # ข้อมูลธุรกรรมที่ส่งกลับ
     id: int
     user_id: int
-    amount: float
+    amount: Decimal
     type: str
     description: Optional[str] = None
     timestamp: datetime
@@ -48,15 +49,13 @@ class TopupRequest(BaseModel):
     @field_validator('amount')
     @classmethod
     def validate_amount(cls, v: float) -> float:
-        if v <= 0:
-            raise ValueError('Amount must be positive')
         return round(v, 2)  # ทศนิยม 2 ตำแหน่ง
 
 class TopupResponse(BaseModel):
     # ข้อมูลการเติมเงินที่ส่งกลับ (ใช้ UserResponse)
     id: int
     username: str
-    balance: float
+    balance: Decimal
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -65,7 +64,7 @@ class TokenResponse(BaseModel):
     # ข้อมูลโทเค็นที่ส่งกลับ
     token_id: str
     user_id: int
-    price: float
+    price: Decimal
     created_at: datetime
     used: bool
     used_at: Optional[datetime] = None
@@ -87,8 +86,8 @@ class PurchaseTokenRequest(BaseModel):
 class PurchaseTokenResponse(BaseModel):
     # ข้อมูลการซื้อโทเค็นที่ส่งกลับ
     tokens: List[str]
-    total_cost: float
-    remaining_balance: float
+    total_cost: Decimal
+    remaining_balance: Decimal
     quantity: int
 
 class VerifyTokenRequest(BaseModel):

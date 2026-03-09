@@ -3,16 +3,13 @@
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from models import User, Transaction, Token
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
+from decimal import Decimal
 import uuid
 from typing import List, Optional
 from passlib.context import CryptContext
 
 pwd_context = CryptContext(schemes=["argon2"], deprecated='auto')
-def get_thai_now():
-    timezone_thai = timezone(timedelta(hours=7))
-    return datetime.now(timezone_thai)
-
 def get_password(password):
     return pwd_context.hash(password)
 
@@ -23,7 +20,7 @@ def create_user(db: Session, username:str, password: str, initial_balance: float
     # สร้างผู้ใช้ใหม่
     hashed_password = get_password(password)
     try:
-        user = User(username=username, hashed_password=hashed_password, balance=initial_balance)
+        user = User(username=username, hashed_password=hashed_password, balance=Decimal(str(initial_balance)))
         db.add(user)
         db.commit()
         db.refresh(user)
@@ -57,11 +54,9 @@ def get_all_users(db: Session, skip: int=0, limit: int=100):
 
 def create_transaction(db: Session, user_id:int, amount:float, transaction_type:str, description:str= None) -> Transaction:
 
-    # สร้างธุรกรรมใหม่
+    # สร้างธุรกรรมใหม่ (ไม่ commit เอง ให้ caller จัดการ)
     transaction = Transaction(user_id=user_id, amount=amount, type=transaction_type, description=description)
     db.add(transaction)
-    db.commit()
-    db.refresh(transaction)
     return transaction
 
 def get_users_transactions(db: Session, user_id:int, skip:int=0, limit: int=50):
@@ -69,28 +64,13 @@ def get_users_transactions(db: Session, user_id:int, skip:int=0, limit: int=50):
     # ดึงข้อมูลธุรกรรมของผู้ใช้ จากใหม่ไปเก่า
     return db.query(Transaction).filter(Transaction.user_id==user_id).order_by(Transaction.timestamp.desc()).offset(skip).limit(limit).all()
 
-def create_token(db: Session, user_id:int, price_per_token:float, quantity:int=1) -> List[Token]:
-
-    # สร้างโทเค็นใหม่
-    new_token = []
-    for i in range(quantity):
-        token_id = str(uuid.uuid4())
-        token = Token(token_id=token_id, user_id=user_id, price=price_per_token)
-        db.add(token)
-        new_token.append(token)
-    db.commit()
-
-    for t in new_token:
-        db.refresh(t)
-    return new_token
-
 def get_token(db: Session, token_id:str) -> Token:
 
     # ดึงข้อมูโทเค็นจากโทเค็น ID
     return db.query(Token).filter(Token.token_id==token_id).first()
 
 def verify_and_use_token(db: Session, token_id:str) ->dict:
-    rows_updated = db.query(Token).filter(Token.token_id == token_id, Token.used == False).update({'used': True,'used_at': get_thai_now()})
+    rows_updated = db.query(Token).filter(Token.token_id == token_id, Token.used == False).update({'used': True,'used_at': datetime.now(timezone.utc)})
     db.commit()
 
     if rows_updated == 1:
@@ -115,22 +95,29 @@ def get_user_token(db: Session, user_id:int, unused_only: bool= False) -> List[T
 
 def update_balance(db: Session, user_id:int, amount:float, transaction_type:str, description:str= None) -> User:
 
-    # อัพเดทยอดเงินคงเหลือของผู้ใช้และสร้างธุรกรรม
+    # อัพเดทยอดเงินคงเหลือของผู้ใช้และสร้างธุรกรรม (Atomic update ป้องกัน Race Condition)
     user = get_user(db, user_id)
-
     if not user:
         raise ValueError(f"User ID {user_id} not found")
-    
-    new_balance = user.balance + amount
 
-    # ตรวจสอบว่ามีเงินพอไหม
-    if new_balance < 0:
+    amount = Decimal(str(amount))
+
+    if amount >= 0:
+        # เติมเงิน: ไม่ต้องเช็ค balance
+        rows_updated = db.query(User).filter(
+            User.id == user_id
+        ).update({"balance": User.balance + amount}, synchronize_session="fetch")
+    else:
+        # ถอนเงิน: เช็คว่ามีเงินพอในคำสั่งเดียว
+        rows_updated = db.query(User).filter(
+            User.id == user_id,
+            User.balance >= abs(amount)
+        ).update({"balance": User.balance + amount}, synchronize_session="fetch")
+
+    if rows_updated == 0:
+        db.rollback()
         raise ValueError(f"Insufficient balance: {user.balance}, required: {abs(amount)}")
 
-    # อัพเดทยอดเงินคงเหลือ
-    user.balance = new_balance
-
-    # บันทึกธุรกรรม
     create_transaction(db, user_id, amount, transaction_type, description)
     db.commit()
     db.refresh(user)
@@ -144,7 +131,8 @@ def topup(db: Session, user_id:int, amount:float) -> User:
     return update_balance(db, user_id, amount, "topup", f"Top-up {amount} Baht")
 
 def purchase(db: Session, user_id:int, quantity:int, price_per_token:float) -> dict:
-    total_cost = quantity * price_per_token
+    price_per_token = Decimal(str(price_per_token))
+    total_cost = Decimal(quantity) * price_per_token
 
     # ✅ แก้: Atomic update ป้องกัน Race Condition
     # เช็คและหัก balance ในคำสั่งเดียว จะสำเร็จก็ต่อเมื่อมีเงินพอเท่านั้น
@@ -172,7 +160,6 @@ def purchase(db: Session, user_id:int, quantity:int, price_per_token:float) -> d
             new_tokens.append(token_id)
 
         db.commit()
-        db.refresh(get_user(db, user_id))
 
         user = get_user(db, user_id)
         return {"tokens": new_tokens, "total_cost": total_cost, "remaining_balance": user.balance, "quantity": quantity}

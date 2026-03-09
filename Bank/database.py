@@ -3,7 +3,6 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool  # ✅ แก้
 from models import Base
-import os
 
 # --- แก้ไขส่วนนี้ ---
 # ใช้โฟลเดอร์ปัจจุบันเลย (จะได้ตรงกับ volume ที่ mount ไว้ใน /app/Bank)
